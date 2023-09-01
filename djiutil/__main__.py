@@ -5,7 +5,6 @@
 # - mode to process .SRT (flight data subtitle) files (convert to GPX, then render to video?)
 
 # Resources:
-# - https://github.com/arru/srt-to-gpx
 # - https://github.com/time4tea/gopro-dashboard-overlay
 
 from typing import Optional
