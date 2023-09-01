@@ -1,8 +1,8 @@
 build/
 data/
 dist/
+__pycache__/
 
 *.egg-info/
 
-**/__pycache__/
 **/*.pyc
