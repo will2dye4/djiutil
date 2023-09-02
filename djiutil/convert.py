@@ -11,6 +11,10 @@ import srt
 # 2023-08-28 17:26:58.889
 # [iso: 160] [shutter: 1/297.91] [fnum: 2.8] [ev: 0] [color_md: default] [focal_len: 24.00] [latitude: 36.27423] [longitude: -41.36214] [rel_alt: 46.000 abs_alt: 19.621] [ct: 5895]
 
+
+__all__ = ['DJIRecord', 'convert_srt_to_gpx', 'parse_dji_subtitle', 'parse_dji_subtitles']
+
+
 FRAME_RE = re.compile(r'FrameCnt: (?P<frame_count>\d+), DiffTime: (?P<diff_time>\d+)ms')
 HTML_RE = re.compile('<[^<]+?>')
 TAG_RE = re.compile(r'\[(?P<data>[^[]+?)]')
