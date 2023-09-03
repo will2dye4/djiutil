@@ -4,20 +4,38 @@ from typing import Optional
 import os
 import os.path
 
+from tabulate import tabulate
 
-__all__ = ['DJIFile', 'list_dji_files_in_directory', 'resolve_dji_directory', 'show_dji_files_in_directory']
+
+__all__ = [
+    'DJIFile', 'cleanup_low_resolution_video_files', 'cleanup_subtitle_files', 'list_dji_files_in_directory',
+    'resolve_dji_directory', 'show_dji_files_in_directory',
+]
 
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
+LIST_TABLE_FORMAT = 'rounded_outline'
+LIST_TABLE_ALIGN = ('right', 'center', 'center', 'center', 'center')
+LIST_TABLE_HEADERS = ['#', 'LRF', 'SRT', 'Created', 'Size']
+
 GAP_THRESHOLD_SECONDS = 10 * 60  # 10 minutes
 
+# DJI firmware creates a directory structure like the following:
+# /
+# ├── DCIM
+# │   └── DJI_001
+# │       ├── DJI_20230828172510_0001_D.LRF
+# │       ├── DJI_20230828172510_0001_D.MP4
+# │       ├── DJI_20230828172510_0001_D.SRT
+# │       ├── DJI_20230828172754_0002_D.LRF
+# │       ├── DJI_20230828172754_0002_D.MP4
+# │       ├── DJI_20230828172754_0002_D.SRT
+# │       └── ...
+# └── MISC
+#     └── ...
 DCIM_PATH = 'DCIM'
 DJI_001_PATH = 'DJI_001'
-
-LRF_MARKER = ' [LRF]'
-SRT_MARKER = ' [SRT]'
-SPACING = ' ' * 6
 
 
 @dataclass
@@ -91,38 +109,61 @@ def show_dji_files_in_directory(dir_path: str) -> None:
         print(f'No DJI files found in directory {dir_path}!')
         return
 
-    max_name_len = 0
-    max_name_padding = 0
-    for dji_file in dji_files:
-        name = dji_file.file_name if dji_file.file_index is None else f'{dji_file.file_index:,}'
-        name_len = len(name)
-        if name_len > max_name_len:
-            max_name_len = name_len
-        name_padding = name_len
-        if dji_file.has_lrf_file:
-            name_padding += len(LRF_MARKER)
-        if dji_file.has_srt_file:
-            name_padding += len(SRT_MARKER)
-        if name_padding > max_name_padding:
-            max_name_padding = name_padding
-
+    files_table = []
     prev_file = None
     for dji_file in dji_files:
-        name = dji_file.file_name if dji_file.file_index is None else f'{dji_file.file_index:{max_name_len},}'
-        if dji_file.has_lrf_file:
-            name += LRF_MARKER
-        if dji_file.has_srt_file:
-            name += SRT_MARKER
+        name = dji_file.file_name if dji_file.file_index is None else f'{dji_file.file_index:,}'
+        lrf = '✓' if dji_file.has_lrf_file else ''
+        srt = '✓' if dji_file.has_srt_file else ''
         created = dji_file.file_created.strftime(DATETIME_FORMAT)
         size = format_file_size(dji_file.file_size_bytes)
         if prev_file and (dji_file.file_created - prev_file.file_created).total_seconds() > GAP_THRESHOLD_SECONDS:
-            print()
-        print(f'{name:{max_name_padding}}{SPACING}{created}{SPACING}{size}')
+            files_table.append(['───', '─────', '─────', '───────────────────', '────'])
+        files_table.append([name, lrf, srt, created, size])
         prev_file = dji_file
+
+    print(tabulate(files_table, headers=LIST_TABLE_HEADERS, tablefmt=LIST_TABLE_FORMAT, colalign=LIST_TABLE_ALIGN))
 
 
 def cleanup_low_resolution_video_files(dir_path: str) -> None:
-    pass  # TODO
+    cleanup_files_by_type(dir_path, file_type='LRF')
+
+
+def cleanup_subtitle_files(dir_path: str) -> None:
+    cleanup_files_by_type(dir_path, file_type='SRT')
+
+
+def cleanup_files_by_type(dir_path: str, file_type: str) -> None:
+    dir_path = resolve_dji_directory(dir_path)
+    cleanup_file_ext = f'.{file_type.lower()}'
+    cleanup_files = []
+    total_size_bytes = 0
+    for path in os.listdir(dir_path):
+        file_name, file_ext = os.path.splitext(os.path.basename(path))
+        if file_ext.lower() == cleanup_file_ext:
+            abs_path = os.path.join(dir_path, path)
+            cleanup_files.append(abs_path)
+            total_size_bytes += os.stat(abs_path).st_size
+
+    if not cleanup_files:
+        print(f'No {file_type} files found in directory {dir_path}!')
+        return
+
+    files_pluralized = 'file' if len(cleanup_files) == 1 else 'files'
+    pronoun = 'it' if len(cleanup_files) == 1 else 'them'
+    try:
+        resp = input(f'Found {len(cleanup_files)} {file_type} {files_pluralized} totaling '
+                     f'{format_file_size(total_size_bytes).strip()}. Do you wish to delete {pronoun}? (y/N) ')
+    except EOFError:
+        resp = ''
+    if resp.lower() not in {'y', 'ye', 'yes', 'yee'}:
+        return
+
+    for cleanup_file in cleanup_files:
+        print(f'Deleting {cleanup_file}...')
+        os.remove(cleanup_file)
+
+    print(f'Successfully deleted {len(cleanup_files)} {file_type} {files_pluralized}.')
 
 
 def import_files(dir_path: str, include_srt_files: bool = False) -> None:
