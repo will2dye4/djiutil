@@ -6,6 +6,9 @@ import re
 
 import srt
 
+from djiutil.files import file_exts
+
+
 # Sample DJI SRT data:
 # FrameCnt: 6469, DiffTime: 16ms
 # 2023-08-28 17:26:58.889
@@ -95,19 +98,33 @@ def build_gpx_document(records: list[DJIRecord]) -> ET.ElementTree:
 
 
 def convert_srt_to_gpx(srt_file_path: str, gpx_file_path: Optional[str] = None) -> None:
-    print(f'Loading records from {srt_file_path}...')
-    with open(srt_file_path) as srt_file:
-        srt_data = srt_file.read()
+    if os.path.isdir(srt_file_path):
+        if gpx_file_path:
+            raise ValueError('Must not provide gpx_file_path when converting a directory of SRT files!')
+        srt_files = [
+            os.path.join(srt_file_path, p)
+            for p in os.listdir(srt_file_path)
+            if p.lower().endswith(file_exts.SRT)
+        ]
+    else:
+        srt_files = [srt_file_path]
 
-    subtitles = list(srt.parse(srt_data))
-    records = parse_dji_subtitles(subtitles)
-    print(f'Loaded {len(subtitles):,} records from {srt_file_path}.')
+    for srt_path in srt_files:
+        print(f'Loading records from {srt_path}...')
+        with open(srt_path) as srt_file:
+            srt_data = srt_file.read()
 
-    if gpx_file_path is None:
-        base_path, _ = os.path.splitext(srt_file_path)
-        gpx_file_path = f'{base_path}.gpx'
+        subtitles = list(srt.parse(srt_data))
+        records = parse_dji_subtitles(subtitles)
+        print(f'Loaded {len(subtitles):,} records from {srt_path}.')
 
-    xml = build_gpx_document(records)
-    with open(gpx_file_path, 'wb') as gpx_file:
-        xml.write(gpx_file, xml_declaration=True, encoding='utf-8')
-    print(f'Successfully wrote {gpx_file_path}.')
+        if gpx_file_path is None:
+            base_path, _ = os.path.splitext(srt_path)
+            gpx_path = f'{base_path}.gpx'
+        else:
+            gpx_path = gpx_file_path
+
+        xml = build_gpx_document(records)
+        with open(gpx_path, 'wb') as gpx_file:
+            xml.write(gpx_file, xml_declaration=True, encoding='utf-8')
+        print(f'Successfully wrote {gpx_path}.')

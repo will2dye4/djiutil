@@ -6,14 +6,15 @@ import os
 import os.path
 import re
 import subprocess
+import types
 
 from tabulate import tabulate, SEPARATING_LINE
 
 
 __all__ = [
     'DateFilter', 'DJIFile', 'JSON_OUTPUT_FORMAT', 'PLAIN_OUTPUT_FORMAT', 'cleanup_low_resolution_video_files',
-    'cleanup_subtitle_files', 'list_dji_files_in_directory', 'play_video_file', 'resolve_dji_directory',
-    'show_dji_files_in_directory',
+    'cleanup_subtitle_files', 'file_exts', 'import_files', 'list_dji_files_in_directory', 'play_video_file',
+    'resolve_dji_directory', 'show_dji_files_in_directory',
 ]
 
 
@@ -29,6 +30,12 @@ LIST_TABLE_ALIGN = ['right', 'center', 'center', 'center', 'center']
 LIST_TABLE_HEADERS = ['#', 'LRF', 'SRT', 'Created', 'Size']
 
 GAP_THRESHOLD_SECONDS = 10 * 60  # 10 minutes
+
+file_exts = types.SimpleNamespace()
+file_exts.LRF = '.lrf'
+file_exts.MOV = '.mov'
+file_exts.MP4 = '.mp4'
+file_exts.SRT = '.srt'
 
 # DJI firmware creates a directory structure like the following:
 # /
@@ -46,6 +53,8 @@ GAP_THRESHOLD_SECONDS = 10 * 60  # 10 minutes
 DCIM_PATH = 'DCIM'
 DJI_001_PATH = 'DJI_001'
 
+RSYNC_VERSION_PATTERN = re.compile(r'rsync\s+version\s+(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)')
+
 
 @dataclass
 class DJIFile:
@@ -60,6 +69,12 @@ class DJIFile:
     @property
     def file_path(self) -> str:
         return self.file_name + self.file_ext
+
+    @property
+    def srt_file_path(self) -> Optional[str]:
+        if self.has_srt_file:
+            return self.file_name + file_exts.SRT
+        return None
 
 
 @dataclass
@@ -133,11 +148,11 @@ def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
             continue
         file_name, file_ext = os.path.splitext(os.path.basename(path))
         match file_ext.lower():
-            case '.mov' | '.mp4':
+            case file_exts.MOV | file_exts.MP4:
                 video_files.add((file_name, file_ext))
-            case '.lrf':
+            case file_exts.LRF:
                 lrf_files.add(file_name)
-            case '.srt':
+            case file_exts.SRT:
                 srt_files.add(file_name)
 
     dji_files = []
@@ -241,15 +256,15 @@ def show_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
     print(output)
 
 
-def cleanup_low_resolution_video_files(dir_path: str) -> None:
-    cleanup_files_by_type(dir_path, file_type='LRF')
+def cleanup_low_resolution_video_files(dir_path: str, assume_yes: bool = False) -> None:
+    cleanup_files_by_type(dir_path, file_type='LRF', assume_yes=assume_yes)
 
 
-def cleanup_subtitle_files(dir_path: str) -> None:
-    cleanup_files_by_type(dir_path, file_type='SRT')
+def cleanup_subtitle_files(dir_path: str, assume_yes: bool = False) -> None:
+    cleanup_files_by_type(dir_path, file_type='SRT', assume_yes=assume_yes)
 
 
-def cleanup_files_by_type(dir_path: str, file_type: str) -> None:
+def cleanup_files_by_type(dir_path: str, file_type: str, assume_yes: bool = False) -> None:
     dir_path = resolve_dji_directory(dir_path)
     cleanup_file_ext = f'.{file_type.lower()}'
     cleanup_files = []
@@ -267,13 +282,17 @@ def cleanup_files_by_type(dir_path: str, file_type: str) -> None:
 
     files_pluralized = 'file' if len(cleanup_files) == 1 else 'files'
     pronoun = 'it' if len(cleanup_files) == 1 else 'them'
-    try:
-        resp = input(f'Found {len(cleanup_files)} {file_type} {files_pluralized} totaling '
-                     f'{format_file_size(total_size_bytes).strip()}. Do you wish to delete {pronoun}? (y/N) ')
-    except EOFError:
-        resp = ''
-    if resp.lower() not in {'y', 'ye', 'yes', 'yee'}:
-        return
+    if assume_yes:
+        print(f'Deleting {len(cleanup_files):,} {file_type} {files_pluralized} totaling '
+              f'{format_file_size(total_size_bytes).strip()}...')
+    else:
+        try:
+            resp = input(f'Found {len(cleanup_files):,} {file_type} {files_pluralized} totaling '
+                         f'{format_file_size(total_size_bytes).strip()}. Do you wish to delete {pronoun}? (y/N) ')
+        except EOFError:
+            resp = ''
+        if resp.lower() not in {'y', 'ye', 'yes', 'yee'}:
+            return
 
     for cleanup_file in cleanup_files:
         print(f'Deleting {cleanup_file}...')
@@ -282,8 +301,70 @@ def cleanup_files_by_type(dir_path: str, file_type: str) -> None:
     print(f'Successfully deleted {len(cleanup_files)} {file_type} {files_pluralized}.')
 
 
-def import_files(dir_path: str, include_srt_files: bool = False) -> None:
-    pass  # TODO
+def check_rsync_major_version() -> int:
+    which_result = subprocess.run(['which', 'rsync'], stdout=subprocess.DEVNULL)
+    if which_result.returncode != 0:
+        raise RuntimeError('Must have rsync installed to import files!')
+    version_result = subprocess.run(['rsync', '--version'], capture_output=True)
+    for line in version_result.stdout.splitlines():
+        if match := RSYNC_VERSION_PATTERN.match(line.decode('utf-8')):
+            return int(match.group('major'))
+    raise RuntimeError('Failed to parse `rsync --version` output!')
+
+
+def import_files(dir_path: str, dest_path: str, date_filter: Optional[DateFilter] = None,
+                 index_numbers: Optional[list[int]] = None, include_srt_files: bool = False,
+                 assume_yes: bool = False) -> None:
+    if date_filter and index_numbers:
+        raise ValueError(f'Must provide either date_filter or index_numbers, but not both!')
+
+    dir_path = resolve_dji_directory(dir_path)
+    dji_files = list_dji_files_in_directory(dir_path, date_filter)
+    if index_numbers:
+        dji_files = [f for f in dji_files if f.file_index in index_numbers]
+    if not dji_files:
+        filter_error = f' matching the provided date filter' if date_filter else ''
+        print(f'No DJI files found in directory {dir_path}{filter_error}!')
+        return
+
+    srt_count = 0
+    srt_result = ''
+    if include_srt_files:
+        srt_count = sum(1 for f in dji_files if f.has_srt_file)
+        srt_result = f' (+ {srt_count:,} SRT {"file" if srt_count == 1 else "files"})'
+
+    files_pluralized = 'file' if len(dji_files) == 1 else 'files'
+    pronoun = 'it' if len(dji_files) == 1 and srt_count == 0 else 'them'
+    total_size_bytes = sum(f.file_size_bytes for f in dji_files)
+    if assume_yes:
+        print(f'Importing {len(dji_files):,} video {files_pluralized} totaling '
+              f'{format_file_size(total_size_bytes).strip()}{srt_result}...')
+    else:
+        try:
+            resp = input(f'Found {len(dji_files):,} video {files_pluralized} totaling '
+                         f'{format_file_size(total_size_bytes).strip()}{srt_result}. Do you wish to import {pronoun}? '
+                         '(Y/n) ')
+        except EOFError:
+            resp = ''
+        if resp.lower() in {'n', 'no', 'nope'}:
+            return
+
+    if not os.path.exists(dest_path):
+        print(f'Creating directory {dest_path}...')
+        os.makedirs(dest_path)
+
+    file_paths = [os.path.join(dir_path, f.file_path) for f in dji_files]
+    if include_srt_files:
+        file_paths.extend([os.path.join(dir_path, f.srt_file_path) for f in dji_files if f.has_srt_file])
+
+    rsync_version = check_rsync_major_version()
+    rsync_args = [
+        'rsync', '-a', '-h',
+        '--info=progress2' if rsync_version >= 3 else '--progress',
+        *file_paths,
+        dest_path,
+    ]
+    subprocess.run(rsync_args)
 
 
 def play_video_file(dir_path: str, index: int) -> None:
