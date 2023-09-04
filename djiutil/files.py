@@ -323,8 +323,9 @@ def import_files(dir_path: str, dest_path: str, date_filter: Optional[DateFilter
     if index_numbers:
         dji_files = [f for f in dji_files if f.file_index in index_numbers]
     if not dji_files:
-        filter_error = f' matching the provided date filter' if date_filter else ''
-        print(f'No DJI files found in directory {dir_path}{filter_error}!')
+        filter_error = ' matching the provided date filter' if date_filter else ''
+        index_error = ' matching the provided indices' if index_numbers else ''
+        print(f'No DJI files found in directory {dir_path}{filter_error}{index_error}!')
         return
 
     srt_count = 0

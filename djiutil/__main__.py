@@ -48,22 +48,26 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
                                help='path to the directory where DJI files are located')
     import_parser.add_argument('import_dest_path', metavar='dest_path',
                                help='path to the directory to import the files to')
+    import_filter_group = import_parser.add_mutually_exclusive_group()
+    import_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
+                                     help='filter imported files by date or age (examples: "<1d", ">1w", "2023-08-28").'
+                                          ' Supported units are: h (hours), d (days), w (weeks), m (months), and'
+                                          ' y (years).')
+    import_filter_group.add_argument('-i', '--index', '--index-numbers',
+                                     help='index number(s) of the video file(s) to import, as returned by the list '
+                                          'subcommand (examples: "1-4", "5,7,8", "21-23,26-29,32")')
     import_parser.add_argument('-s', '--srt', '--include-srt', action='store_true',
                                help='import SRT (subtitle) files in addition to video files (default: false)')
     import_parser.add_argument('-y', '--yes', '--assume-yes', action='store_true',
                                help='skip user confirmation before importing files (default: false)')
-    import_filter_group = import_parser.add_mutually_exclusive_group()
-    import_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
-                                     help='filter imported files by date or age (examples: "<1d", ">1w", "2023-08-28")')
-    import_filter_group.add_argument('-i', '--index', '--index-numbers',
-                                     help='index number(s) of the video file(s) to import, as returned by the list '
-                                          'subcommand (examples: "1-4", "5,7,8", "21-23,26-29,32")')
 
     list_parser = subparsers.add_parser('list', help='list DJI files in a directory')
     list_parser.add_argument('list_dir_path', metavar='dir_path',
                              help='path to the directory where DJI files are located')
     list_parser.add_argument('-d', '--date-filter', type=DateFilter.parse,
-                             help='filter results by date or age (examples: "<1d", ">1w", "2023-08-28")')
+                             help='filter results by date or age (examples: "<1d", ">1w", "2023-08-28").'
+                                  ' Supported units are: h (hours), d (days), w (weeks), m (months), and'
+                                  ' y (years).')
     list_parser.add_argument('-o', '--output', '--output-format',
                              choices=(JSON_OUTPUT_FORMAT, PLAIN_OUTPUT_FORMAT),
                              help='desired output format (plain format or JSON); default: pretty tabular format')
