@@ -1,22 +1,29 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+import json
 import os
 import os.path
+import re
 
-from tabulate import tabulate
+from tabulate import tabulate, SEPARATING_LINE
 
 
 __all__ = [
-    'DJIFile', 'cleanup_low_resolution_video_files', 'cleanup_subtitle_files', 'list_dji_files_in_directory',
-    'resolve_dji_directory', 'show_dji_files_in_directory',
+    'DateFilter', 'DJIFile', 'JSON_OUTPUT_FORMAT', 'PLAIN_OUTPUT_FORMAT', 'cleanup_low_resolution_video_files',
+    'cleanup_subtitle_files', 'list_dji_files_in_directory', 'resolve_dji_directory', 'show_dji_files_in_directory',
 ]
 
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
-LIST_TABLE_FORMAT = 'rounded_outline'
-LIST_TABLE_ALIGN = ('right', 'center', 'center', 'center', 'center')
+JSON_OUTPUT_FORMAT = 'json'
+PLAIN_OUTPUT_FORMAT = 'plain'
+
+DEFAULT_TABLE_FORMAT = 'rounded_outline'
+PLAIN_TABLE_FORMAT = 'simple'
+
+LIST_TABLE_ALIGN = ['right', 'center', 'center', 'center', 'center']
 LIST_TABLE_HEADERS = ['#', 'LRF', 'SRT', 'Created', 'Size']
 
 GAP_THRESHOLD_SECONDS = 10 * 60  # 10 minutes
@@ -48,6 +55,60 @@ class DJIFile:
     has_lrf_file: bool = False
     has_srt_file: bool = False
 
+    @property
+    def file_path(self) -> str:
+        return self.file_name + self.file_ext
+
+
+@dataclass
+class DateFilter:
+    min_date: Optional[datetime] = None
+    max_date: Optional[datetime] = None
+
+    _DAYS_PER_MONTH = 30
+    _DAYS_PER_YEAR = 365
+    _PATTERN = re.compile(
+        r'^((?P<match_type>[<>])(?P<age>\d+)(?P<unit>[dhmwy])|(?P<date>\d{4}-\d{2}-\d{2}))$',
+        re.IGNORECASE
+    )
+
+    @classmethod
+    def parse(cls, date_filter: str) -> 'DateFilter':
+        date_filter = (date_filter or '').strip()
+        if (filter_match := cls._PATTERN.match(date_filter)) is None:
+            raise ValueError(f'Invalid date filter "{date_filter}": must be like "<1d" or ">1w" or "2023-08-28"')
+        if date := filter_match.group('date'):
+            min_date = datetime.strptime(date, '%Y-%m-%d')
+            max_date = min_date + timedelta(days=1)
+            return DateFilter(min_date, max_date)
+        age = int(filter_match.group('age'))
+        if age == 0:
+            raise ValueError(f'Invalid date filter "{date_filter}": age must not be zero')
+        filter_delta = None
+        match filter_match.group('unit'):
+            case 'h':
+                filter_delta = timedelta(hours=age)
+            case 'd':
+                filter_delta = timedelta(days=age)
+            case 'w':
+                filter_delta = timedelta(weeks=age)
+            case 'm':
+                filter_delta = timedelta(days=cls._DAYS_PER_MONTH * age)
+            case 'y':
+                filter_delta = timedelta(days=cls._DAYS_PER_YEAR * age)
+        if filter_delta is None:
+            raise ValueError(f'Invalid date filter "{date_filter}": unit must be one of "d", "h", "m", "w", or "y"')
+        filter_date = datetime.now() - filter_delta
+        min_date = max_date = None
+        if filter_match.group('match_type') == '<':
+            min_date = filter_date
+        else:
+            max_date = filter_date
+        return DateFilter(min_date, max_date)
+
+    def matches(self, date: datetime) -> bool:
+        return (self.min_date is None or date >= self.min_date) and (self.max_date is None or date <= self.max_date)
+
 
 # Auto-convert directory path if incomplete, e.g., '/Volumes/Mavic' --> '/Volumes/Mavic/DCIM/DJI_001'.
 def resolve_dji_directory(dir_path: str) -> str:
@@ -60,7 +121,7 @@ def resolve_dji_directory(dir_path: str) -> str:
     return dir_path
 
 
-def list_dji_files_in_directory(dir_path: str) -> list[DJIFile]:
+def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None) -> list[DJIFile]:
     dir_path = resolve_dji_directory(dir_path)
     video_files = set()
     lrf_files = set()
@@ -77,19 +138,20 @@ def list_dji_files_in_directory(dir_path: str) -> list[DJIFile]:
 
     dji_files = []
     for file_name, file_ext in video_files:
-        index = None
-        name_parts = file_name.split('_')
-        for part in name_parts[::-1]:
-            if part.isdigit():
-                index = int(part)
-                break
-        has_lrf = file_name in lrf_files
-        has_srt = file_name in srt_files
         file_info = os.stat(os.path.join(dir_path, file_name + file_ext))
         created = datetime.fromtimestamp(file_info.st_ctime)
-        dji_files.append(DJIFile(file_name=file_name, file_ext=file_ext, file_created=created,
-                                 file_size_bytes=file_info.st_size, file_index=index, has_lrf_file=has_lrf,
-                                 has_srt_file=has_srt))
+        if date_filter is None or date_filter.matches(created):
+            index = None
+            name_parts = file_name.split('_')
+            for part in name_parts[::-1]:
+                if part.isdigit():
+                    index = int(part)
+                    break
+            has_lrf = file_name in lrf_files
+            has_srt = file_name in srt_files
+            dji_files.append(DJIFile(file_name=file_name, file_ext=file_ext, file_created=created,
+                                     file_size_bytes=file_info.st_size, file_index=index, has_lrf_file=has_lrf,
+                                     has_srt_file=has_srt))
     return sorted(dji_files, key=lambda f: (f.file_created, f.file_index))
 
 
@@ -103,11 +165,18 @@ def format_file_size(size_in_bytes: int) -> str:
     return f'{size_in_bytes:.1f}T'
 
 
-def show_dji_files_in_directory(dir_path: str) -> None:
-    dji_files = list_dji_files_in_directory(dir_path)
-    if not dji_files:
-        print(f'No DJI files found in directory {dir_path}!')
-        return
+def format_dji_files_as_table(dir_path: str, dji_files: list[DJIFile], include_file_path: bool = False,
+                              output_format: Optional[str] = None) -> str:
+    output_format = (output_format or '').lower()
+    table_format = PLAIN_TABLE_FORMAT if output_format == PLAIN_OUTPUT_FORMAT else DEFAULT_TABLE_FORMAT
+    headers = LIST_TABLE_HEADERS.copy()
+    col_align = LIST_TABLE_ALIGN.copy()
+    path_divider = None
+    if include_file_path:
+        headers.append('Video File Path')
+        col_align.append('left')
+        if not output_format:
+            path_divider = '─' * len(os.path.join(dir_path, dji_files[0].file_path))
 
     files_table = []
     prev_file = None
@@ -118,11 +187,54 @@ def show_dji_files_in_directory(dir_path: str) -> None:
         created = dji_file.file_created.strftime(DATETIME_FORMAT)
         size = format_file_size(dji_file.file_size_bytes)
         if prev_file and (dji_file.file_created - prev_file.file_created).total_seconds() > GAP_THRESHOLD_SECONDS:
-            files_table.append(['───', '─────', '─────', '───────────────────', '────'])
-        files_table.append([name, lrf, srt, created, size])
+            if output_format == PLAIN_OUTPUT_FORMAT:
+                divider_row = SEPARATING_LINE
+            else:
+                divider_row = ['───', '─────', '─────', '───────────────────', '────']
+                if include_file_path:
+                    divider_row.append(path_divider)
+            files_table.append(divider_row)
+        file_row = [name, lrf, srt, created, size]
+        if include_file_path:
+            file_row.append(os.path.join(dir_path, dji_file.file_path))
+        files_table.append(file_row)
         prev_file = dji_file
 
-    print(tabulate(files_table, headers=LIST_TABLE_HEADERS, tablefmt=LIST_TABLE_FORMAT, colalign=LIST_TABLE_ALIGN))
+    return tabulate(files_table, headers=headers, tablefmt=table_format, colalign=col_align)
+
+
+def format_dji_files_as_json(dir_path: str, dji_files: list[DJIFile], include_file_path: bool = False) -> str:
+    json_files = []
+    for dji_file in dji_files:
+        json_file = {
+            'index': dji_file.file_index,
+            'has_lrf': dji_file.has_lrf_file,
+            'has_srt': dji_file.has_srt_file,
+            'created': dji_file.file_created.isoformat(),
+            'size': format_file_size(dji_file.file_size_bytes),
+            'size_in_bytes': dji_file.file_size_bytes,
+        }
+        if include_file_path:
+            json_file['path'] = os.path.join(dir_path, dji_file.file_path)
+        json_files.append(json_file)
+    return json.dumps(json_files)
+
+
+def show_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None,
+                                include_file_path: bool = False, output_format: Optional[str] = None) -> None:
+    dir_path = resolve_dji_directory(dir_path)
+    dji_files = list_dji_files_in_directory(dir_path, date_filter)
+    if not dji_files:
+        filter_error = f' matching the provided date filter' if date_filter else ''
+        print(f'No DJI files found in directory {dir_path}{filter_error}!')
+        return
+
+    output_format = (output_format or '').lower()
+    if output_format == JSON_OUTPUT_FORMAT:
+        output = format_dji_files_as_json(dir_path, dji_files, include_file_path)
+    else:
+        output = format_dji_files_as_table(dir_path, dji_files, include_file_path, output_format)
+    print(output)
 
 
 def cleanup_low_resolution_video_files(dir_path: str) -> None:
