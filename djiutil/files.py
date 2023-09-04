@@ -5,13 +5,15 @@ import json
 import os
 import os.path
 import re
+import subprocess
 
 from tabulate import tabulate, SEPARATING_LINE
 
 
 __all__ = [
     'DateFilter', 'DJIFile', 'JSON_OUTPUT_FORMAT', 'PLAIN_OUTPUT_FORMAT', 'cleanup_low_resolution_video_files',
-    'cleanup_subtitle_files', 'list_dji_files_in_directory', 'resolve_dji_directory', 'show_dji_files_in_directory',
+    'cleanup_subtitle_files', 'list_dji_files_in_directory', 'play_video_file', 'resolve_dji_directory',
+    'show_dji_files_in_directory',
 ]
 
 
@@ -127,6 +129,8 @@ def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
     lrf_files = set()
     srt_files = set()
     for path in os.listdir(dir_path):
+        if path.startswith('.'):
+            continue
         file_name, file_ext = os.path.splitext(os.path.basename(path))
         match file_ext.lower():
             case '.mov' | '.mp4':
@@ -280,3 +284,14 @@ def cleanup_files_by_type(dir_path: str, file_type: str) -> None:
 
 def import_files(dir_path: str, include_srt_files: bool = False) -> None:
     pass  # TODO
+
+
+def play_video_file(dir_path: str, index: int) -> None:
+    dir_path = resolve_dji_directory(dir_path)
+    dji_files = list_dji_files_in_directory(dir_path)
+    if (dji_file := next((f for f in dji_files if f.file_index == index), None)) is None:
+        print(f'Failed to find video file with index #{index} in directory {dir_path}!')
+        return
+    file_path = os.path.join(dir_path, dji_file.file_path)
+    print(f'Opening {file_path}...')
+    subprocess.Popen(['open', file_path])

@@ -16,6 +16,7 @@ from djiutil.files import (
     PLAIN_OUTPUT_FORMAT,
     cleanup_low_resolution_video_files,
     cleanup_subtitle_files,
+    play_video_file,
     show_dji_files_in_directory,
 )
 
@@ -49,6 +50,12 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
     list_parser.add_argument('-p', '--include-file-path', action='store_true',
                              help='include video file paths in the listing')
 
+    play_parser = subparsers.add_parser('play', help='play a DJI video file by index number')
+    play_parser.add_argument('play_dir_path', metavar='dir_path',
+                             help='path to the directory where DJI files are located')
+    play_parser.add_argument('play_index', metavar='index', type=int,
+                             help='index number of the video file to play (as returned by the list subcommand)')
+
     return parser.parse_args(args), parser.print_usage
 
 
@@ -73,6 +80,8 @@ def main(args: Optional[list[str]] = None) -> None:
             include_file_path=config.include_file_path,
             output_format=getattr(config, 'output', None),
         )
+    elif hasattr(config, 'play_dir_path'):
+        play_video_file(config.play_dir_path, config.play_index)
     else:
         print_usage()
 
