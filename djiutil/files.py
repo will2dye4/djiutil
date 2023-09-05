@@ -6,15 +6,16 @@ import os
 import os.path
 import re
 import subprocess
+import sys
 import types
 
 from tabulate import tabulate, SEPARATING_LINE
 
 
 __all__ = [
-    'DateFilter', 'DJIFile', 'JSON_OUTPUT_FORMAT', 'PLAIN_OUTPUT_FORMAT', 'cleanup_low_resolution_video_files',
-    'cleanup_subtitle_files', 'file_exts', 'import_files', 'list_dji_files_in_directory', 'play_video_file',
-    'resolve_dji_directory', 'show_dji_files_in_directory',
+    'DateFilter', 'DJIFile', 'JSON_OUTPUT_FORMAT', 'PLAIN_OUTPUT_FORMAT', 'cleanup_all_files',
+    'cleanup_low_resolution_video_files', 'cleanup_subtitle_files', 'cleanup_video_files', 'file_exts', 'import_files',
+    'list_dji_files_in_directory', 'play_video_file', 'resolve_dji_directory', 'show_dji_files_in_directory',
 ]
 
 
@@ -138,7 +139,12 @@ def resolve_dji_directory(dir_path: str) -> str:
     return dir_path
 
 
-def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None) -> list[DJIFile]:
+def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None,
+                                index_numbers: Optional[list[int]] = None,
+                                file_extension: Optional[str] = None) -> list[DJIFile]:
+    if date_filter and index_numbers:
+        raise ValueError(f'Must provide either date_filter or index_numbers, but not both!')
+
     dir_path = resolve_dji_directory(dir_path)
     video_files = set()
     lrf_files = set()
@@ -156,7 +162,14 @@ def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
                 srt_files.add(file_name)
 
     dji_files = []
-    for file_name, file_ext in video_files:
+    file_set = (
+        lrf_files if file_extension == file_exts.LRF else srt_files if file_extension == file_exts.SRT else video_files
+    )
+    for file_name in file_set:
+        if isinstance(file_name, tuple):
+            file_name, file_ext = file_name
+        else:
+            file_ext = file_extension
         file_info = os.stat(os.path.join(dir_path, file_name + file_ext))
         created = datetime.fromtimestamp(file_info.st_ctime)
         if date_filter is None or date_filter.matches(created):
@@ -166,6 +179,8 @@ def list_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
                 if part.isdigit():
                     index = int(part)
                     break
+            if index_numbers and index not in index_numbers:
+                continue
             has_lrf = file_name in lrf_files
             has_srt = file_name in srt_files
             dji_files.append(DJIFile(file_name=file_name, file_ext=file_ext, file_created=created,
@@ -242,7 +257,7 @@ def format_dji_files_as_json(dir_path: str, dji_files: list[DJIFile], include_fi
 def show_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None,
                                 include_file_path: bool = False, output_format: Optional[str] = None) -> None:
     dir_path = resolve_dji_directory(dir_path)
-    dji_files = list_dji_files_in_directory(dir_path, date_filter)
+    dji_files = list_dji_files_in_directory(dir_path, date_filter=date_filter)
     if not dji_files:
         filter_error = f' matching the provided date filter' if date_filter else ''
         print(f'No DJI files found in directory {dir_path}{filter_error}!')
@@ -256,32 +271,62 @@ def show_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter]
     print(output)
 
 
-def cleanup_low_resolution_video_files(dir_path: str, assume_yes: bool = False) -> None:
-    cleanup_files_by_type(dir_path, file_type='LRF', assume_yes=assume_yes)
+def cleanup_low_resolution_video_files(dir_path: str, date_filter: Optional[DateFilter] = None,
+                                       index_numbers: Optional[list[int]] = None, assume_yes: bool = False,
+                                       ignore_empty: bool = False) -> None:
+    cleanup_files_by_type(dir_path, file_extension=file_exts.LRF, date_filter=date_filter,
+                          index_numbers=index_numbers, assume_yes=assume_yes, ignore_empty=ignore_empty)
 
 
-def cleanup_subtitle_files(dir_path: str, assume_yes: bool = False) -> None:
-    cleanup_files_by_type(dir_path, file_type='SRT', assume_yes=assume_yes)
+def cleanup_subtitle_files(dir_path: str, date_filter: Optional[DateFilter] = None,
+                           index_numbers: Optional[list[int]] = None, assume_yes: bool = False,
+                           ignore_empty: bool = False) -> None:
+    cleanup_files_by_type(dir_path, file_extension=file_exts.SRT, date_filter=date_filter,
+                          index_numbers=index_numbers, assume_yes=assume_yes, ignore_empty=ignore_empty)
 
 
-def cleanup_files_by_type(dir_path: str, file_type: str, assume_yes: bool = False) -> None:
+def cleanup_video_files(dir_path: str, date_filter: Optional[DateFilter] = None,
+                        index_numbers: Optional[list[int]] = None, assume_yes: bool = False) -> None:
+    count = cleanup_files_by_type(dir_path, file_extension=file_exts.MOV, date_filter=date_filter,
+                                  index_numbers=index_numbers, assume_yes=assume_yes, ignore_empty=True)
+    count += cleanup_files_by_type(dir_path, file_extension=file_exts.MP4, date_filter=date_filter,
+                                   index_numbers=index_numbers, assume_yes=assume_yes, ignore_empty=True)
+    if not count:
+        filter_error = ' matching the provided date filter' if date_filter else ''
+        index_error = ' matching the provided indices' if index_numbers else ''
+        print(f'No video files{filter_error}{index_error} found in directory {resolve_dji_directory(dir_path)}!')
+
+
+def cleanup_all_files(dir_path: str, date_filter: Optional[DateFilter] = None,
+                      index_numbers: Optional[list[int]] = None, assume_yes: bool = False) -> None:
+    cleanup_video_files(dir_path, date_filter=date_filter, index_numbers=index_numbers, assume_yes=assume_yes)
+    cleanup_low_resolution_video_files(dir_path, date_filter=date_filter, index_numbers=index_numbers,
+                                       assume_yes=True, ignore_empty=True)
+    cleanup_subtitle_files(dir_path, date_filter=date_filter, index_numbers=index_numbers,
+                           assume_yes=True, ignore_empty=True)
+
+
+def cleanup_files_by_type(dir_path: str, file_extension: str, date_filter: Optional[DateFilter] = None,
+                          index_numbers: Optional[list[int]] = None, assume_yes: bool = False,
+                          ignore_empty: bool = False) -> int:
+    if date_filter and index_numbers:
+        raise ValueError(f'Must provide either date_filter or index_numbers, but not both!')
+
     dir_path = resolve_dji_directory(dir_path)
-    cleanup_file_ext = f'.{file_type.lower()}'
-    cleanup_files = []
-    total_size_bytes = 0
-    for path in os.listdir(dir_path):
-        file_name, file_ext = os.path.splitext(os.path.basename(path))
-        if file_ext.lower() == cleanup_file_ext:
-            abs_path = os.path.join(dir_path, path)
-            cleanup_files.append(abs_path)
-            total_size_bytes += os.stat(abs_path).st_size
+    file_type = file_extension.lstrip('.').upper() if file_extension in {file_exts.LRF, file_exts.SRT} else 'video'
+    cleanup_files = list_dji_files_in_directory(dir_path, date_filter=date_filter, index_numbers=index_numbers,
+                                                file_extension=file_extension)
 
     if not cleanup_files:
-        print(f'No {file_type} files found in directory {dir_path}!')
-        return
+        if not ignore_empty:
+            filter_error = ' matching the provided date filter' if date_filter else ''
+            index_error = ' matching the provided indices' if index_numbers else ''
+            print(f'No {file_type} files{filter_error}{index_error} found in directory {dir_path}!')
+        return 0
 
     files_pluralized = 'file' if len(cleanup_files) == 1 else 'files'
     pronoun = 'it' if len(cleanup_files) == 1 else 'them'
+    total_size_bytes = sum(f.file_size_bytes for f in cleanup_files)
     if assume_yes:
         print(f'Deleting {len(cleanup_files):,} {file_type} {files_pluralized} totaling '
               f'{format_file_size(total_size_bytes).strip()}...')
@@ -292,13 +337,15 @@ def cleanup_files_by_type(dir_path: str, file_type: str, assume_yes: bool = Fals
         except EOFError:
             resp = ''
         if resp.lower() not in {'y', 'ye', 'yes', 'yee'}:
-            return
+            sys.exit(0)
 
     for cleanup_file in cleanup_files:
-        print(f'Deleting {cleanup_file}...')
-        os.remove(cleanup_file)
+        cleanup_file_path = os.path.join(dir_path, cleanup_file.file_path)
+        print(f'Deleting {cleanup_file_path}...')
+        os.remove(cleanup_file_path)
 
     print(f'Successfully deleted {len(cleanup_files)} {file_type} {files_pluralized}.')
+    return len(cleanup_files)
 
 
 def check_rsync_major_version() -> int:
@@ -319,9 +366,7 @@ def import_files(dir_path: str, dest_path: str, date_filter: Optional[DateFilter
         raise ValueError(f'Must provide either date_filter or index_numbers, but not both!')
 
     dir_path = resolve_dji_directory(dir_path)
-    dji_files = list_dji_files_in_directory(dir_path, date_filter)
-    if index_numbers:
-        dji_files = [f for f in dji_files if f.file_index in index_numbers]
+    dji_files = list_dji_files_in_directory(dir_path, date_filter=date_filter, index_numbers=index_numbers)
     if not dji_files:
         filter_error = ' matching the provided date filter' if date_filter else ''
         index_error = ' matching the provided indices' if index_numbers else ''
@@ -348,7 +393,7 @@ def import_files(dir_path: str, dest_path: str, date_filter: Optional[DateFilter
         except EOFError:
             resp = ''
         if resp.lower() in {'n', 'no', 'nope'}:
-            return
+            sys.exit(0)
 
     if not os.path.exists(dest_path):
         print(f'Creating directory {dest_path}...')

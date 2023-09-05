@@ -13,8 +13,10 @@ from djiutil.files import (
     DateFilter,
     JSON_OUTPUT_FORMAT,
     PLAIN_OUTPUT_FORMAT,
+    cleanup_all_files,
     cleanup_low_resolution_video_files,
     cleanup_subtitle_files,
+    cleanup_video_files,
     import_files,
     play_video_file,
     show_dji_files_in_directory,
@@ -30,9 +32,18 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
     subparsers = parser.add_subparsers()
 
     cleanup_parser = subparsers.add_parser('cleanup', help='clean up unwanted DJI files (LRF, SRT, etc.)')
-    cleanup_parser.add_argument('file_type', choices=('lrf', 'srt'), help='type of files to clean up')
+    cleanup_parser.add_argument('file_type', choices=('lrf', 'srt', 'video', 'all'),
+                                help='type of files to clean up (video includes .mov and .mp4 files)')
     cleanup_parser.add_argument('cleanup_dir_path', metavar='dir_path',
                                 help='path to the directory where DJI files are located')
+    cleanup_filter_group = cleanup_parser.add_mutually_exclusive_group()
+    cleanup_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
+                                      help='filter deleted files by date or age (examples: "<1d", ">1w", "2023-08-28").'
+                                           ' Supported units are: h (hours), d (days), w (weeks), m (months), and'
+                                           ' y (years).')
+    cleanup_filter_group.add_argument('-i', '--index', '--index-numbers',
+                                      help='index number(s) of the video file(s) to delete, as returned by the list '
+                                           'subcommand (examples: "1-4", "5,7,8", "21-23,26-29,32")')
     cleanup_parser.add_argument('-y', '--yes', '--assume-yes', action='store_true',
                                 help='skip user confirmation before cleaning up files (default: false)')
 
@@ -107,10 +118,20 @@ def main(args: Optional[list[str]] = None) -> None:
 
     config, print_usage = parse_args(args)
     if hasattr(config, 'cleanup_dir_path'):
+        date_filter = getattr(config, 'date_filter', None)
+        index_numbers = parse_index_numbers(getattr(config, 'index', None))
         if config.file_type == 'lrf':
-            cleanup_low_resolution_video_files(config.cleanup_dir_path, assume_yes=config.yes)
+            cleanup_low_resolution_video_files(config.cleanup_dir_path, date_filter=date_filter,
+                                               index_numbers=index_numbers, assume_yes=config.yes)
         elif config.file_type == 'srt':
-            cleanup_subtitle_files(config.cleanup_dir_path, assume_yes=config.yes)
+            cleanup_subtitle_files(config.cleanup_dir_path, date_filter=date_filter,
+                                   index_numbers=index_numbers, assume_yes=config.yes)
+        elif config.file_type == 'video':
+            cleanup_video_files(config.cleanup_dir_path, date_filter=date_filter,
+                                index_numbers=index_numbers, assume_yes=config.yes)
+        elif config.file_type == 'all':
+            cleanup_all_files(config.cleanup_dir_path, date_filter=date_filter,
+                              index_numbers=index_numbers, assume_yes=config.yes)
         else:
             print_usage()
     elif hasattr(config, 'srt_file_path'):
