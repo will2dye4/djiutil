@@ -9,7 +9,7 @@ import subprocess
 import sys
 import types
 
-from tabulate import tabulate, SEPARATING_LINE
+from tabulate import tabulate
 
 
 __all__ = [
@@ -128,6 +128,10 @@ class DateFilter:
         return (self.min_date is None or date >= self.min_date) and (self.max_date is None or date <= self.max_date)
 
 
+def is_noninteractive_environment() -> bool:
+    return not sys.stdout.isatty()
+
+
 # Auto-convert directory path if incomplete, e.g., '/Volumes/Mavic' --> '/Volumes/Mavic/DCIM/DJI_001'.
 def resolve_dji_directory(dir_path: str) -> str:
     dir_contents = os.listdir(dir_path)
@@ -221,13 +225,11 @@ def format_dji_files_as_table(dir_path: str, dji_files: list[DJIFile], include_f
         created = dji_file.file_created.strftime(DATETIME_FORMAT)
         size = format_file_size(dji_file.file_size_bytes)
         if prev_file and (dji_file.file_created - prev_file.file_created).total_seconds() > GAP_THRESHOLD_SECONDS:
-            if output_format == PLAIN_OUTPUT_FORMAT:
-                divider_row = SEPARATING_LINE
-            else:
+            if output_format != PLAIN_OUTPUT_FORMAT:
                 divider_row = ['───', '─────', '─────', '───────────────────', '────']
                 if include_file_path:
                     divider_row.append(path_divider)
-            files_table.append(divider_row)
+                files_table.append(divider_row)
         file_row = [name, lrf, srt, created, size]
         if include_file_path:
             file_row.append(os.path.join(dir_path, dji_file.file_path))
@@ -255,12 +257,17 @@ def format_dji_files_as_json(dir_path: str, dji_files: list[DJIFile], include_fi
 
 
 def show_dji_files_in_directory(dir_path: str, date_filter: Optional[DateFilter] = None,
-                                include_file_path: bool = False, output_format: Optional[str] = None) -> None:
+                                index_numbers: Optional[list[int]] = None, include_file_path: bool = False,
+                                output_format: Optional[str] = None) -> None:
+    if date_filter and index_numbers:
+        raise ValueError(f'Must provide either date_filter or index_numbers, but not both!')
+
     dir_path = resolve_dji_directory(dir_path)
-    dji_files = list_dji_files_in_directory(dir_path, date_filter=date_filter)
+    dji_files = list_dji_files_in_directory(dir_path, date_filter=date_filter, index_numbers=index_numbers)
     if not dji_files:
         filter_error = f' matching the provided date filter' if date_filter else ''
-        print(f'No DJI files found in directory {dir_path}{filter_error}!')
+        index_error = ' matching the provided indices' if index_numbers else ''
+        print(f'No DJI files found in directory {dir_path}{filter_error}{index_error}!')
         return
 
     output_format = (output_format or '').lower()
@@ -327,7 +334,7 @@ def cleanup_files_by_type(dir_path: str, file_extension: str, date_filter: Optio
     files_pluralized = 'file' if len(cleanup_files) == 1 else 'files'
     pronoun = 'it' if len(cleanup_files) == 1 else 'them'
     total_size_bytes = sum(f.file_size_bytes for f in cleanup_files)
-    if assume_yes:
+    if is_noninteractive_environment() or assume_yes:
         print(f'Deleting {len(cleanup_files):,} {file_type} {files_pluralized} totaling '
               f'{format_file_size(total_size_bytes).strip()}...')
     else:
@@ -382,7 +389,7 @@ def import_files(dir_path: str, dest_path: str, date_filter: Optional[DateFilter
     files_pluralized = 'file' if len(dji_files) == 1 else 'files'
     pronoun = 'it' if len(dji_files) == 1 and srt_count == 0 else 'them'
     total_size_bytes = sum(f.file_size_bytes for f in dji_files)
-    if assume_yes:
+    if is_noninteractive_environment() or assume_yes:
         print(f'Importing {len(dji_files):,} video {files_pluralized} totaling '
               f'{format_file_size(total_size_bytes).strip()}{srt_result}...')
     else:
