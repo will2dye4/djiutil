@@ -111,7 +111,7 @@ files are stored.
 ### File Filtering
 
 Several `djiutil` subcommands support filtering DJI files by date, age, or index number. This can
-be helpful when working with a subset of the files stored on a mounted drive instead of all files.
+be helpful when working with a subset of the files stored on a mounted volume instead of all files.
 
 #### Filtering by Date and Age
 
@@ -190,7 +190,7 @@ Use the following command to clean up video files created more than two weeks ag
 from the directory `/Volumes/Mavic`:
 
 ```
-$ djiutil cleanup srt /Volumes/Mavic -d '>2w'
+$ djiutil cleanup video /Volumes/Mavic -d '>2w'
 ```
 
 Use the following command to clean up all files with index numbers 10-14 (inclusive)
