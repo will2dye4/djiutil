@@ -4,9 +4,13 @@
 # Resources:
 # - https://github.com/time4tea/gopro-dashboard-overlay
 
-from typing import Callable, Optional
+from functools import lru_cache
+from typing import Any, Optional
 import argparse
+import json
+import os
 import sys
+import types
 
 from djiutil.convert import convert_srt_to_gpx
 from djiutil.files import (
@@ -23,19 +27,58 @@ from djiutil.files import (
 )
 
 
+commands = types.SimpleNamespace()
+commands.CLEANUP = 'cleanup'
+commands.CONVERT = 'convert'
+commands.IMPORT = 'import'
+commands.LIST = 'list'
+commands.PLAY = 'play'
+
+CLEANUP_FUNCTIONS = {
+    'all': cleanup_all_files,
+    'lrf': cleanup_low_resolution_video_files,
+    'srt': cleanup_subtitle_files,
+    'video': cleanup_video_files,
+}
+
+DEFAULT_CONFIG_FILE_PATH = '~/.djiutil.json'
+
+DIR_PATH_CONFIG_KEY = 'dji_dir_path'
+DIR_PATH_ENVIRONMENT_KEY = 'DJIUTIL_DIR_PATH'
+
+
 # Type aliases.
-UsageFn = Callable[[], None]
+JSONConfig = dict[str, Any]
 
 
-def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
+@lru_cache(maxsize=32)
+def load_config_file(file_path: str = DEFAULT_CONFIG_FILE_PATH) -> Optional[JSONConfig]:
+    file_path = os.path.expanduser(file_path)
+    if not os.path.exists(file_path):
+        return None
+    with open(file_path) as f:
+        return json.load(f)
+
+
+def resolve_dir_path(cli_config: argparse.Namespace) -> Optional[str]:
+    if cli_dir_path := getattr(cli_config, 'dir_path', None):  # Highest precedence: provided on the command line.
+        return cli_dir_path
+    if DIR_PATH_ENVIRONMENT_KEY in os.environ:  # Second-highest precedence: environment variable.
+        return os.environ[DIR_PATH_ENVIRONMENT_KEY]
+    if (file_config := load_config_file()) and DIR_PATH_CONFIG_KEY in file_config:  # Lowest precedence: config file.
+        return file_config[DIR_PATH_CONFIG_KEY]
+    return None
+
+
+def create_parsers() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
     parser = argparse.ArgumentParser(description='manipulate files created by DJI drones')
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest='command')
+    command_parsers = {}
 
-    cleanup_parser = subparsers.add_parser('cleanup', help='clean up unwanted DJI files (LRF, SRT, etc.)')
+    cleanup_parser = subparsers.add_parser(commands.CLEANUP, help='clean up unwanted DJI files (LRF, SRT, etc.)')
     cleanup_parser.add_argument('file_type', choices=('lrf', 'srt', 'video', 'all'),
                                 help='type of files to clean up (video includes .mov and .mp4 files)')
-    cleanup_parser.add_argument('cleanup_dir_path', metavar='dir_path',
-                                help='path to the directory where DJI files are located')
+    cleanup_parser.add_argument('dir_path', nargs='?', help='path to the directory where DJI files are located')
     cleanup_filter_group = cleanup_parser.add_mutually_exclusive_group()
     cleanup_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
                                       help='filter deleted files by date or age (examples: "<1d", ">1w", "2023-08-28").'
@@ -46,19 +89,19 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
                                            'subcommand (examples: "1-4", "5,7,8", "21-23,26-29,32")')
     cleanup_parser.add_argument('-y', '--yes', '--assume-yes', action='store_true',
                                 help='skip user confirmation before cleaning up files (default: false)')
+    command_parsers[commands.CLEANUP] = cleanup_parser
 
-    convert_parser = subparsers.add_parser('convert', help='convert DJI subtitle files to GPX format')
+    convert_parser = subparsers.add_parser(commands.CONVERT, help='convert DJI subtitle files to GPX format')
     convert_parser.add_argument('srt_file_path',
                                 help='path to the subtitle (.srt) file to convert, '
                                      'or a directory where subtitle files are located')
     convert_parser.add_argument('gpx_file_path', nargs='?',
                                 help='output GPX file path (inferred from srt_file_path if not specified)')
+    command_parsers[commands.CONVERT] = convert_parser
 
-    import_parser = subparsers.add_parser('import', help='import DJI video and subtitle files')
-    import_parser.add_argument('import_dir_path', metavar='dir_path',
-                               help='path to the directory where DJI files are located')
-    import_parser.add_argument('import_dest_path', metavar='dest_path',
-                               help='path to the directory to import the files to')
+    import_parser = subparsers.add_parser(commands.IMPORT, help='import DJI video and subtitle files')
+    import_parser.add_argument('dir_path', nargs='?', help='path to the directory where DJI files are located')
+    import_parser.add_argument('dest_path', help='path to the directory to import the files to')
     import_filter_group = import_parser.add_mutually_exclusive_group()
     import_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
                                      help='filter imported files by date or age (examples: "<1d", ">1w", "2023-08-28").'
@@ -71,10 +114,10 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
                                help='import SRT (subtitle) files in addition to video files (default: false)')
     import_parser.add_argument('-y', '--yes', '--assume-yes', action='store_true',
                                help='skip user confirmation before importing files (default: false)')
+    command_parsers[commands.IMPORT] = import_parser
 
-    list_parser = subparsers.add_parser('list', help='list DJI files in a directory')
-    list_parser.add_argument('list_dir_path', metavar='dir_path',
-                             help='path to the directory where DJI files are located')
+    list_parser = subparsers.add_parser(commands.LIST, help='list DJI files in a directory')
+    list_parser.add_argument('dir_path', nargs='?', help='path to the directory where DJI files are located')
     list_filter_group = list_parser.add_mutually_exclusive_group()
     list_filter_group.add_argument('-d', '--date-filter', type=DateFilter.parse,
                                    help='filter results by date or age (examples: "<1d", ">1w", "2023-08-28").'
@@ -88,14 +131,15 @@ def parse_args(args: list[str]) -> tuple[argparse.Namespace, UsageFn]:
                              help='desired output format (plain format or JSON); default: pretty tabular format')
     list_parser.add_argument('-p', '--include-file-path', action='store_true',
                              help='include video file paths in the listing (default: false)')
+    command_parsers[commands.LIST] = list_parser
 
-    play_parser = subparsers.add_parser('play', help='play a DJI video file by index number')
-    play_parser.add_argument('play_dir_path', metavar='dir_path',
-                             help='path to the directory where DJI files are located')
+    play_parser = subparsers.add_parser(commands.PLAY, help='play a DJI video file by index number')
+    play_parser.add_argument('dir_path', nargs='?', help='path to the directory where DJI files are located')
     play_parser.add_argument('play_index', metavar='index', type=int,
                              help='index number of the video file to play (as returned by the list subcommand)')
+    command_parsers[commands.PLAY] = play_parser
 
-    return parser.parse_args(args), parser.print_usage
+    return parser, command_parsers
 
 
 def parse_index_numbers(index_str: Optional[str]) -> Optional[list[int]]:
@@ -120,47 +164,50 @@ def main(args: Optional[list[str]] = None) -> None:
     if args is None:
         args = sys.argv[1:]
 
-    config, print_usage = parse_args(args)
+    top_level_parser, command_parsers = create_parsers()
+    config = top_level_parser.parse_args(args)
     date_filter = getattr(config, 'date_filter', None)
     index_numbers = parse_index_numbers(getattr(config, 'index', None))
-    if hasattr(config, 'cleanup_dir_path'):
-        if config.file_type == 'lrf':
-            cleanup_low_resolution_video_files(config.cleanup_dir_path, date_filter=date_filter,
-                                               index_numbers=index_numbers, assume_yes=config.yes)
-        elif config.file_type == 'srt':
-            cleanup_subtitle_files(config.cleanup_dir_path, date_filter=date_filter,
-                                   index_numbers=index_numbers, assume_yes=config.yes)
-        elif config.file_type == 'video':
-            cleanup_video_files(config.cleanup_dir_path, date_filter=date_filter,
-                                index_numbers=index_numbers, assume_yes=config.yes)
-        elif config.file_type == 'all':
-            cleanup_all_files(config.cleanup_dir_path, date_filter=date_filter,
-                              index_numbers=index_numbers, assume_yes=config.yes)
-        else:
-            print_usage()
-    elif hasattr(config, 'srt_file_path'):
-        convert_srt_to_gpx(config.srt_file_path, config.gpx_file_path)
-    elif hasattr(config, 'import_dir_path'):
-        import_files(
-            config.import_dir_path,
-            config.import_dest_path,
-            date_filter=date_filter,
-            index_numbers=index_numbers,
-            include_srt_files=config.srt,
-            assume_yes=config.yes,
-        )
-    elif hasattr(config, 'list_dir_path'):
-        show_dji_files_in_directory(
-            config.list_dir_path,
-            date_filter=date_filter,
-            index_numbers=index_numbers,
-            include_file_path=config.include_file_path,
-            output_format=getattr(config, 'output', None),
-        )
-    elif hasattr(config, 'play_dir_path'):
-        play_video_file(config.play_dir_path, config.play_index)
-    else:
-        print_usage()
+
+    dir_path = None
+    if config.command != commands.CONVERT:  # All commands except 'convert' require a dir_path.
+        if not (dir_path := resolve_dir_path(config)):
+            command_parsers[config.command].print_usage()
+            return
+        dir_path = os.path.expanduser(dir_path)
+        if not os.path.exists(dir_path):
+            print(f'Failed to locate directory {dir_path}!')
+            sys.exit(1)
+
+    match config.command:
+        case commands.CLEANUP:
+            if not (cleanup := CLEANUP_FUNCTIONS.get(config.file_type)):
+                command_parsers[config.command].print_usage()
+                return
+            cleanup(dir_path, date_filter=date_filter, index_numbers=index_numbers, assume_yes=config.yes)
+        case commands.CONVERT:
+            convert_srt_to_gpx(config.srt_file_path, config.gpx_file_path)
+        case commands.IMPORT:
+            import_files(
+                dir_path,
+                config.dest_path,
+                date_filter=date_filter,
+                index_numbers=index_numbers,
+                include_srt_files=config.srt,
+                assume_yes=config.yes,
+            )
+        case commands.LIST:
+            show_dji_files_in_directory(
+                dir_path,
+                date_filter=date_filter,
+                index_numbers=index_numbers,
+                include_file_path=config.include_file_path,
+                output_format=getattr(config, 'output', None),
+            )
+        case commands.PLAY:
+            play_video_file(dir_path, config.play_index)
+        case _:
+            top_level_parser.print_usage()
 
 
 if __name__ == '__main__':

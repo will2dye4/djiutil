@@ -78,7 +78,7 @@ To see more details about a specific subcommand and the options that it accepts,
 
 ```
 $ djiutil play -h
-usage: djiutil play [-h] dir_path index
+usage: djiutil play [-h] [dir_path] index
 
 positional arguments:
   dir_path    path to the directory where DJI files are located
@@ -139,7 +139,7 @@ hyphen (e.g., `5-8`), or a sequence of indices or ranges separated by commas (e.
 
 ```
 $ djiutil cleanup -h
-usage: djiutil cleanup [-h] [-d DATE_FILTER | -i INDEX] [-y] {lrf,srt,video,all} dir_path
+usage: djiutil cleanup [-h] [-d DATE_FILTER | -i INDEX] [-y] {lrf,srt,video,all} [dir_path]
 
 positional arguments:
   {lrf,srt,video,all}   type of files to clean up (video includes .mov and .mp4 files)
@@ -257,7 +257,7 @@ $ djiutil convert /Volumes/Mavic
 
 ```
 $ djiutil import -h
-usage: djiutil import [-h] [-d DATE_FILTER | -i INDEX] [-s] [-y] dir_path dest_path
+usage: djiutil import [-h] [-d DATE_FILTER | -i INDEX] [-s] [-y] [dir_path] dest_path
 
 positional arguments:
   dir_path              path to the directory where DJI files are located
@@ -322,7 +322,7 @@ $ djiutil import /Volumes/Mavic /var/video -i 22-26 -s -y
 
 ```
 $ djiutil list -h
-usage: djiutil list [-h] [-d DATE_FILTER | -i INDEX] [-o {json,plain}] [-p] dir_path
+usage: djiutil list [-h] [-d DATE_FILTER | -i INDEX] [-o {json,plain}] [-p] [dir_path]
 
 positional arguments:
   dir_path              path to the directory where DJI files are located
@@ -449,7 +449,7 @@ $ djiutil list /Volumes/Mavic -o json
 
 ```
 $ djiutil play -h
-usage: djiutil play [-h] dir_path index
+usage: djiutil play [-h] [dir_path] index
 
 positional arguments:
   dir_path    path to the directory where DJI files are located
@@ -469,4 +469,30 @@ Use the following command to play the video file with index 42 from the director
 
 ```
 $ djiutil play /Volumes/Mavic 42
+```
+
+### Configuring a Default Directory Path
+
+All `djiutil` subcommands except `djiutil convert` require specifying the path to a directory where
+DJI files are located. The sections above describe how to specify this directory path on the
+command line when invoking `djiutil`. However, the directory path does not change frequently (if
+ever) when working with the files created by a single drone, and typing the path repeatedly for
+every `djiutil` command can become tiresome.
+
+To alleviate the amount of repetitive typing required, `djiutil` supports configuring a default
+directory path via environment variable and/or config file. If no directory path is specified on
+the command line, `djiutil` will attempt to find the path to use in an environment variable called
+`DJIUTIL_DIR_PATH`. If this environment variable is not defined (or empty), the value will be taken
+from the `dji_dir_path` found in the file `~/.djiutil.json`, if it exists (see below).
+
+#### Example Config File
+
+As described above, you may optionally choose to create a config file to store the default
+directory path for `djiutil` to use. The following is an example config file, which should be
+located at `~/.djiutil.json`:
+
+```json
+{
+  "dji_dir_path": "/Volumes/Mavic"
+}
 ```
