@@ -19,7 +19,6 @@ way to install it is to clone the GitHub repository and install it from source.
 
 * [Python](https://www.python.org/downloads/) 3.11 or newer
 * [Git](https://git-scm.com)
-* [Make](https://www.gnu.org/software/make/)
 
 ### Dependencies
 
@@ -37,7 +36,7 @@ Run the following commands in a shell (a UNIX-like environment is assumed):
 ```
 $ git clone git@github.com:will2dye4/djiutil.git
 $ cd djiutil
-$ make install
+$ pip install .
 ```
 
 The package does depend on a few external Python packages available on PyPI. If you wish to
