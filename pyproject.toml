@@ -4,7 +4,14 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'djiutil'
-version = '1.0.0'
+version = '1.0.1'
+description = 'Manipulate files created by DJI drones'
+license = {file = 'LICENSE'}
+readme = 'README.md'
+authors = [
+    {name = 'William Dye'},
+]
+keywords = ['dji', 'dji air', 'dji drone', 'dji mavic', 'mavic', 'mavic pro']
 dependencies = [
     'srt ~= 3.5.3',
     'tabulate ~= 0.9.0',
@@ -13,6 +20,9 @@ requires-python = '>=3.11'
 
 [project.scripts]
 djiutil = 'djiutil.__main__:main'
+
+[project.urls]
+Repository = 'https://github.com/will2dye4/djiutil.git'
 
 [tool.setuptools.packages.find]
 include = ['djiutil*']

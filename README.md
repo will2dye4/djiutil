@@ -12,31 +12,11 @@ tasks:
 
 ## Installation
 
-The package is not currently available on PyPI or any other Python package repository. The easiest
-way to install it is to clone the GitHub repository and install it from source.
-
-### Prerequisites
-
-* [Python](https://www.python.org/downloads/) 3.11 or newer
-* [Git](https://git-scm.com)
-
-### Dependencies
-
-* The utility expects [`rsync`](https://linux.die.net/man/1/rsync) to be installed when importing
-  DJI video files. Modern distributions of Linux and macOS ship with `rsync` preinstalled, so you
-  likely do not need to install it separately. However, the version that is preinstalled on macOS
-  (as of macOS version 13.5) is an older version (2.x), and it is recommended to install `rsync`
-  version 3 or newer (using [Homebrew](https://brew.sh) or your preferred package manager) for the
-  best experience.
-
-### Installation Instructions
-
-Run the following commands in a shell (a UNIX-like environment is assumed):
+The easiest way to install the package is to download it from [PyPI](https://pypi.org) using `pip`.
+Run the following command in a shell (a UNIX-like environment is assumed):
 
 ```
-$ git clone git@github.com:will2dye4/djiutil.git
-$ cd djiutil
-$ pip install .
+$ pip install djiutil
 ```
 
 The package does depend on a few external Python packages available on PyPI. If you wish to
@@ -46,6 +26,15 @@ utility to do so.
 
 When successfully installed, a program called `djiutil` will be placed on your `PATH`. See the
 Usage section below for details about how to use this program.
+
+### Dependencies
+
+* The utility expects [`rsync`](https://linux.die.net/man/1/rsync) to be installed when importing
+  DJI video files. Modern distributions of Linux and macOS ship with `rsync` preinstalled, so you
+  likely do not need to install it separately. However, the version that is preinstalled on macOS
+  (as of macOS version 13.5) is an older version (2.x), and it is recommended to install `rsync`
+  version 3 or newer (using [Homebrew](https://brew.sh) or your preferred package manager) for the
+  best experience.
 
 ## Usage
 
