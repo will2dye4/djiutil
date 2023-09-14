@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'djiutil'
-version = '1.0.1'
+version = '1.0.2'
 description = 'Manipulate files created by DJI drones'
 license = {file = 'LICENSE'}
 readme = 'README.md'

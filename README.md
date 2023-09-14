@@ -13,6 +13,9 @@ tasks:
 ## Installation
 
 The easiest way to install the package is to download it from [PyPI](https://pypi.org) using `pip`.
+Note that `djiutil` depends on [Python](https://www.python.org/downloads/) 3.11 or newer; please
+ensure that you have a recent version of Python installed before proceeding.
+
 Run the following command in a shell (a UNIX-like environment is assumed):
 
 ```
