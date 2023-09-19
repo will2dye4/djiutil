@@ -1,29 +1,22 @@
 [build-system]
-requires = ['setuptools']
-build-backend = 'setuptools.build_meta'
+requires = ['poetry-core']
+build-backend = 'poetry.core.masonry.api'
 
-[project]
+[tool.poetry]
 name = 'djiutil'
-version = '1.0.2'
+version = '1.0.3'
 description = 'Manipulate files created by DJI drones'
-license = {file = 'LICENSE'}
+license = 'MIT'
 readme = 'README.md'
-authors = [
-    {name = 'William Dye'},
-]
+authors = ['William Dye']
 keywords = ['dji', 'dji air', 'dji drone', 'dji mavic', 'mavic', 'mavic pro']
-dependencies = [
-    'srt ~= 3.5.3',
-    'tabulate ~= 0.9.0',
-]
-requires-python = '>=3.11'
+repository = 'https://github.com/will2dye4/djiutil.git'
+packages = [{include = 'djiutil'}]
 
-[project.scripts]
+[tool.poetry.dependencies]
+python = '^3.11'
+srt = '^3.5.3'
+tabulate = '^0.9.0'
+
+[tool.poetry.scripts]
 djiutil = 'djiutil.__main__:main'
-
-[project.urls]
-Repository = 'https://github.com/will2dye4/djiutil.git'
-
-[tool.setuptools.packages.find]
-include = ['djiutil*']
-namespaces = false
