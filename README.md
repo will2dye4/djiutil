@@ -1,5 +1,7 @@
 # djiutil - manipulate files created by DJI drones
 
+[![PyPI Version](https://img.shields.io/pypi/v/djiutil)](https://pypi.org/project/djiutil/) [![Python Version](https://img.shields.io/pypi/pyversions/djiutil)](https://www.python.org/downloads/) [![PyPI Downloads](https://img.shields.io/pypi/dm/djiutil)](https://pypi.org/project/djiutil/) [![MIT License](https://img.shields.io/github/license/will2dye4/djiutil)](https://github.com/will2dye4/djiutil/blob/master/LICENSE)
+
 `djiutil` is a command-line utility and Python package for working with files created by
 [DJI](https://www.dji.com) drones. The utility provides subcommands to assist with the following
 tasks:
